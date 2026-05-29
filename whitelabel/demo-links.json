@@ -1,5 +1,12 @@
 {
   "version": 1,
   "defaultUrl": "https://cal.com/periklis/15min",
-  "links": {}
+  "links": {
+    "8954033": {
+      "parentId": "8954033",
+      "name": "Margarida",
+      "calUrl": "https://cal.com/margarida-rios-arbd7l/15min",
+      "updatedAt": "2026-05-29T22:14:40.359Z"
+    }
+  }
 }
