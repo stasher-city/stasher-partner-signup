@@ -204,192 +204,6 @@ function validateParentId(rawParentId) {
     return parentId;
 }
 
-const COMPANY_TYPE_LABELS = {
-    'supply': 'I want to store bags (Supply)',
-    'vacation-rental': 'Vacation Rental / Airbnb Host',
-    'pms': 'PMS',
-    'venue': 'Venue',
-    'blog': 'Blog',
-    'tour-operator': 'Tour Operator',
-    'transportations': 'Transportations',
-    'other': 'Other'
-};
-
-const VALID_COMMISSION_TYPES = [
-    'I want 10% commission',
-    'I want 10% discount code',
-    'Custom'
-];
-
-function resolveProgramId(affiliateData) {
-    return PROGRAM_ID_MAP[affiliateData.program_currency] ||
-        PROGRAM_ID_MAP[affiliateData.program] ||
-        affiliateData.program ||
-        null;
-}
-
-function buildCustomFieldsFromAffiliateData(affiliateData, fieldKeyMap) {
-    const customFields = {};
-    if (!fieldKeyMap) {
-        return customFields;
-    }
-
-    if (affiliateData.company_type) {
-        const companyTypeKey = fieldKeyMap[normalizeFieldLabel('Company type')];
-        if (companyTypeKey) {
-            customFields[companyTypeKey] = COMPANY_TYPE_LABELS[affiliateData.company_type] || affiliateData.company_type;
-        }
-    }
-
-    if (affiliateData.commission_type) {
-        const commissionKey = fieldKeyMap[normalizeFieldLabel('Commission type')];
-        if (commissionKey) {
-            const commissionTypeValue = VALID_COMMISSION_TYPES.includes(affiliateData.commission_type)
-                ? affiliateData.commission_type
-                : VALID_COMMISSION_TYPES[0];
-            customFields[commissionKey] = commissionTypeValue;
-        }
-    }
-
-    if (affiliateData.wantsDemoCall !== undefined && affiliateData.wantsDemoCall !== null) {
-        const demoCallKey = fieldKeyMap[normalizeFieldLabel('Free DEMO call?')] ||
-            fieldKeyMap[normalizeFieldLabel('Do you want a FREE DEMO call?')];
-        if (demoCallKey) {
-            customFields[demoCallKey] = affiliateData.wantsDemoCall ? 'Yes' : 'No';
-        }
-    }
-
-    return customFields;
-}
-
-async function enrollAffiliateInProgram(affiliateId, programId, apiKey, logPrefix) {
-    const enrollmentPayload = { affiliate: { id: affiliateId }, approved: null };
-    const endpoint = `${TAPFILIATE_BASE_URL}programs/${programId}/affiliates/?send_welcome_email=false`;
-    console.log(`${logPrefix} Enrollment endpoint:`, endpoint);
-
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-        body: JSON.stringify(enrollmentPayload)
-    });
-
-    console.log(`${logPrefix} Enrollment response status:`, response.status);
-
-    if (!response.ok) {
-        const contentType = response.headers.get('content-type');
-        const errorText = await response.text();
-        const trimmedError = errorText.length > 1000 ? errorText.substring(0, 1000) + '...' : errorText;
-        console.error(`${logPrefix} Failed to enroll affiliate in program (trimmed):`, trimmedError);
-
-        if (contentType && contentType.includes('text/html')) {
-            return {
-                ok: false,
-                statusCode: 500,
-                body: {
-                    error: 'Something went wrong while creating your affiliate account. Please try again later.',
-                    status: response.status
-                }
-            };
-        }
-
-        return {
-            ok: false,
-            statusCode: response.status || 500,
-            body: {
-                error: 'Affiliate created but failed to enroll in program.',
-                status: response.status
-            }
-        };
-    }
-
-    let programResult;
-    try {
-        programResult = await response.json();
-    } catch (parseError) {
-        console.error(`${logPrefix} Could not parse enrollment response:`, parseError);
-        return {
-            ok: false,
-            statusCode: 500,
-            body: { error: 'Invalid enrollment response from Tapfiliate API' }
-        };
-    }
-
-    return { ok: true, programResult };
-}
-
-async function setAffiliateWebsiteMeta(affiliateId, website, apiKey, logPrefix) {
-    if (!website) {
-        return;
-    }
-
-    try {
-        const response = await fetch(`${TAPFILIATE_BASE_URL}affiliates/${affiliateId}/meta-data/website/`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-            body: JSON.stringify({ value: website })
-        });
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.error(`${logPrefix} Failed to set website meta data:`, errorText.substring(0, 1000));
-        } else {
-            console.log(`${logPrefix} Website meta data set`);
-        }
-    } catch (error) {
-        console.error(`${logPrefix} Error setting website meta data:`, error);
-    }
-}
-
-async function setAffiliateParent(affiliateId, parentId, apiKey, logPrefix) {
-    if (!parentId) {
-        return;
-    }
-
-    try {
-        console.log(`${logPrefix} Setting parent via Tapfiliate MLM endpoint:`, parentId);
-        const response = await fetch(`${TAPFILIATE_BASE_URL}affiliates/${affiliateId}/parent/`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'X-Api-Key': apiKey },
-            body: JSON.stringify({ via: parentId })
-        });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            const trimmedError = errorText.length > 1000 ? errorText.substring(0, 1000) + '...' : errorText;
-            console.error(`${logPrefix} Failed to set parent:`, response.status, trimmedError);
-        } else {
-            console.log(`${logPrefix} Parent affiliate set successfully`);
-        }
-    } catch (error) {
-        console.error(`${logPrefix} Failed to set parent:`, error);
-    }
-}
-
-async function findAffiliateIdByEmail(email, apiKey, logPrefix) {
-    const lookupUrl = `${TAPFILIATE_BASE_URL}affiliates/?email=${encodeURIComponent(email)}`;
-    console.log(`${logPrefix} Looking up affiliate by email:`, email);
-
-    const response = await fetch(lookupUrl, {
-        method: 'GET',
-        headers: { 'X-Api-Key': apiKey, 'Content-Type': 'application/json' }
-    });
-
-    if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`${logPrefix} Affiliate lookup failed:`, response.status, errorText.substring(0, 500));
-        return null;
-    }
-
-    const affiliates = await response.json();
-    if (!Array.isArray(affiliates) || affiliates.length === 0) {
-        console.warn(`${logPrefix} No affiliate found for email:`, email);
-        return null;
-    }
-
-    const match = affiliates.find((a) => (a.email || '').toLowerCase() === email.toLowerCase()) || affiliates[0];
-    console.log(`${logPrefix} Found affiliate id:`, match.id);
-    return match.id;
-}
-
 // Centralized function to build Tapfiliate affiliate payload
 function buildTapfiliatePayload(affiliateData) {
     const countryCode = getCountryISOCode(affiliateData.country);
@@ -539,11 +353,61 @@ exports.handler = async (event) => {
             // Build Tapfiliate payload with minimal data
             const tapfiliatePayloadStageA = buildTapfiliatePayload(affiliateData);
 
+            // Fetch custom field keys and add custom fields if provided
             const fieldKeyMap = await getCustomFieldKeys(TAPFILIATE_API_KEY);
-            const customFields = buildCustomFieldsFromAffiliateData(affiliateData, fieldKeyMap);
-            if (Object.keys(customFields).length > 0) {
-                tapfiliatePayloadStageA.custom_fields = customFields;
-                console.log('[Stage A] Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+            if (fieldKeyMap) {
+                const customFields = {};
+                
+                // Add Company type if provided
+                if (affiliateData.company_type) {
+                    const companyTypeKey = fieldKeyMap[normalizeFieldLabel('Company type')];
+                    if (companyTypeKey) {
+                        // Map company type values to labels
+                        const companyTypeLabels = {
+                            'supply': 'I want to store bags (Supply)',
+                            'vacation-rental': 'Vacation Rental / Airbnb Host',
+                            'pms': 'PMS',
+                            'venue': 'Venue',
+                            'blog': 'Blog',
+                            'tour-operator': 'Tour Operator',
+                            'transportations': 'Transportations',
+                            'other': 'Other'
+                        };
+                        const companyTypeValue = companyTypeLabels[affiliateData.company_type] || affiliateData.company_type;
+                        customFields[companyTypeKey] = companyTypeValue;
+                    }
+                }
+                
+                // Add Commission type if provided (same pattern as company type)
+                if (affiliateData.commission_type) {
+                    const commissionKey = fieldKeyMap[normalizeFieldLabel('Commission type')];
+                    if (commissionKey) {
+                        // Validate and normalize commission type to ensure only one of the three formats is sent
+                        const validCommissionTypes = [
+                            'I want 10% commission',
+                            'I want 10% discount code',
+                            'Custom'
+                        ];
+                        // Use value directly if it's one of the valid formats, otherwise default to the first valid value
+                        const commissionTypeValue = validCommissionTypes.includes(affiliateData.commission_type) 
+                            ? affiliateData.commission_type 
+                            : validCommissionTypes[0];
+                        customFields[commissionKey] = commissionTypeValue;
+                    }
+                }
+                
+                // Add Free DEMO call if provided (same pattern as company type)
+                if (affiliateData.wantsDemoCall !== undefined && affiliateData.wantsDemoCall !== null) {
+                    const demoCallKey = fieldKeyMap[normalizeFieldLabel('Free DEMO call?')] || fieldKeyMap[normalizeFieldLabel('Do you want a FREE DEMO call?')];
+                    if (demoCallKey) {
+                        customFields[demoCallKey] = affiliateData.wantsDemoCall ? 'Yes' : 'No';
+                    }
+                }
+                
+                if (Object.keys(customFields).length > 0) {
+                    tapfiliatePayloadStageA.custom_fields = customFields;
+                    console.log('[Stage A] Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+                }
             }
 
             // parent_id now sent in creation payload; keep /parent call as fallback
@@ -685,7 +549,7 @@ exports.handler = async (event) => {
          * Does:   updates affiliate with complete info, enrolls existing affiliate into program, sets website meta-data
          */
         if (mode === 'finalize_affiliate') {
-            const { affiliate_id, program, metadata } = affiliateData;
+            const { affiliate_id, program, metadata, address, company, company_type, company_description } = affiliateData;
 
             if (!affiliate_id) {
                 return {
@@ -697,8 +561,7 @@ exports.handler = async (event) => {
                 };
             }
 
-            const mappedProgramIdFinalize = resolveProgramId(affiliateData);
-            console.log('[Stage B] Program enrollment target:', mappedProgramIdFinalize, '(currency:', affiliateData.program_currency || 'n/a', ', program field:', program || 'n/a', ')');
+            const mappedProgramIdFinalize = PROGRAM_ID_MAP[program] || program;
             if (!mappedProgramIdFinalize) {
                 return {
                     statusCode: 400,
@@ -709,32 +572,181 @@ exports.handler = async (event) => {
                 };
             }
 
-            // Enrollment only — affiliate data is set at create time (Tapfiliate has no update endpoint).
-            const enrollmentResult = await enrollAffiliateInProgram(
-                affiliate_id,
-                mappedProgramIdFinalize,
-                TAPFILIATE_API_KEY,
-                '[Stage B]'
+            // Fetch custom field keys and build custom fields (same pattern as company type)
+            const fieldKeyMap = await getCustomFieldKeys(TAPFILIATE_API_KEY);
+            const customFields = {};
+            
+            if (fieldKeyMap) {
+                // Add Commission type if provided (same pattern as company type)
+                if (affiliateData.commission_type) {
+                    const commissionKey = fieldKeyMap[normalizeFieldLabel('Commission type')];
+                    if (commissionKey) {
+                        // Validate and normalize commission type to ensure only one of the three formats is sent
+                        const validCommissionTypes = [
+                            'I want 10% commission',
+                            'I want 10% discount code',
+                            'Custom'
+                        ];
+                        // Use value directly if it's one of the valid formats, otherwise default to the first valid value
+                        const commissionTypeValue = validCommissionTypes.includes(affiliateData.commission_type) 
+                            ? affiliateData.commission_type 
+                            : validCommissionTypes[0];
+                        customFields[commissionKey] = commissionTypeValue;
+                    }
+                }
+                
+                // Add Free DEMO call if provided (same pattern as company type)
+                if (affiliateData.wantsDemoCall !== undefined && affiliateData.wantsDemoCall !== null) {
+                    const demoCallKey = fieldKeyMap[normalizeFieldLabel('Free DEMO call?')] || fieldKeyMap[normalizeFieldLabel('Do you want a FREE DEMO call?')];
+                    if (demoCallKey) {
+                        customFields[demoCallKey] = affiliateData.wantsDemoCall ? 'Yes' : 'No';
+                    }
+                }
+            }
+            
+            // Handle company_description based on company_type (same logic as buildTapfiliatePayload)
+            let companyDescriptionToAdd = null;
+            if (company_type === 'vacation-rental') {
+                companyDescriptionToAdd = 'STR';
+            } else if (company_type && 
+                       ['pms', 'venue', 'blog', 'tour-operator', 'transportations', 'other'].includes(company_type)) {
+                // Use provided company_description if available
+                companyDescriptionToAdd = company_description || null;
+            }
+            // For 'supply' or no company_type, companyDescriptionToAdd remains null
+            
+            // Update affiliate with complete information if provided
+            const updatePayload = {};
+            // DO NOT include parent_id in update payload - use dedicated /parent/ endpoint instead
+            if (address) {
+                updatePayload.address = address;
+            }
+            if (company) {
+                // Create a copy of company object and add description if needed
+                const companyToUpdate = { ...company };
+                if (companyDescriptionToAdd) {
+                    companyToUpdate.description = companyDescriptionToAdd;
+                }
+                updatePayload.company = companyToUpdate;
+            } else if (companyDescriptionToAdd) {
+                // If no company object but we have description, create one
+                updatePayload.company = {
+                    name: 'n/a',
+                    description: companyDescriptionToAdd
+                };
+            }
+            if (Object.keys(customFields).length > 0) {
+                updatePayload.custom_fields = customFields;
+                console.log('[Stage B] Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+            }
+
+            // Run update, meta-data, and enrollment in parallel — they are independent
+            console.log('[Stage B] Running update, meta-data, and enrollment in parallel...');
+
+            const updatePromise = Object.keys(updatePayload).length > 0
+                ? fetch(`${TAPFILIATE_BASE_URL}affiliates/${affiliate_id}/`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json', 'X-Api-Key': TAPFILIATE_API_KEY },
+                    body: JSON.stringify(updatePayload)
+                }).then(async r => {
+                    if (!r.ok) console.error('[Stage B] ⚠️ Failed to update affiliate:', await r.text());
+                    else console.log('[Stage B] ✅ Affiliate updated with complete info');
+                }).catch(e => console.error('[Stage B] Error updating affiliate:', e))
+                : Promise.resolve();
+
+            const metaPromise = (metadata && metadata.website)
+                ? fetch(`${TAPFILIATE_BASE_URL}affiliates/${affiliate_id}/meta-data/website/`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'X-Api-Key': TAPFILIATE_API_KEY },
+                    body: JSON.stringify({ value: metadata.website })
+                }).then(async r => {
+                    if (!r.ok) {
+                        const t = await r.text();
+                        console.error('[Stage B] Failed to set website meta data:', t.substring(0, 1000));
+                    } else {
+                        console.log('[Stage B] ✅ Website meta data set');
+                    }
+                }).catch(e => console.error('[Stage B] Error setting website meta data:', e))
+                : Promise.resolve();
+
+            const enrollmentPayloadFinalize = { affiliate: { id: affiliate_id }, approved: null };
+            console.log('[Stage B] Enrollment endpoint:', `${TAPFILIATE_BASE_URL}programs/${mappedProgramIdFinalize}/affiliates/?send_welcome_email=false`);
+
+            const addToProgramResponseFinalize = fetch(
+                `${TAPFILIATE_BASE_URL}programs/${mappedProgramIdFinalize}/affiliates/?send_welcome_email=false`,
+                {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-Api-Key': TAPFILIATE_API_KEY },
+                    body: JSON.stringify(enrollmentPayloadFinalize)
+                }
             );
 
-            if (!enrollmentResult.ok) {
+            const [, , addToProgramResponseFinalizeResolved] = await Promise.all([updatePromise, metaPromise, addToProgramResponseFinalize]);
+
+            console.log('[Stage B] Enrollment response status:', addToProgramResponseFinalizeResolved.status);
+
+            if (!addToProgramResponseFinalizeResolved.ok) {
+                const contentTypeFinalize = addToProgramResponseFinalizeResolved.headers.get('content-type');
+                const errorTextFinalize = await addToProgramResponseFinalizeResolved.text();
+
+                const trimmedErrorFinalize = errorTextFinalize.length > 1000 ? errorTextFinalize.substring(0, 1000) + '...' : errorTextFinalize;
+                console.error('[Stage B] Failed to enroll affiliate in program (trimmed):', trimmedErrorFinalize);
+
+                if (contentTypeFinalize && contentTypeFinalize.includes('text/html')) {
+                    console.error('[Stage B] Tapfiliate returned HTML error page instead of JSON');
+                    return {
+                        statusCode: 500,
+                        headers,
+                        body: JSON.stringify({
+                            error: 'Something went wrong while creating your affiliate account. Please try again later.',
+                            status: addToProgramResponseFinalizeResolved.status
+                        })
+                    };
+                }
+
                 return {
-                    statusCode: enrollmentResult.statusCode,
+                    statusCode: addToProgramResponseFinalizeResolved.status || 500,
                     headers,
-                    body: JSON.stringify(enrollmentResult.body)
+                    body: JSON.stringify({
+                        error: 'Affiliate created but failed to enroll in program.',
+                        status: addToProgramResponseFinalizeResolved.status
+                    })
                 };
             }
 
-            await setAffiliateWebsiteMeta(
-                affiliate_id,
-                metadata && metadata.website,
-                TAPFILIATE_API_KEY,
-                '[Stage B]'
-            );
+            const programResultFinalize = await addToProgramResponseFinalizeResolved.json();
 
+            // Set parent affiliate AFTER successful enrollment (for MLM functionality)
             const parentIdFinalize = validateParentId(affiliateData.parent_id);
             if (parentIdFinalize) {
-                await setAffiliateParent(affiliate_id, parentIdFinalize, TAPFILIATE_API_KEY, '[Stage B]');
+                try {
+                    console.log('[Parent] Setting parent via Tapfiliate MLM endpoint:', parentIdFinalize);
+                    const setParentResponseFinalize = await fetch(
+                        `${TAPFILIATE_BASE_URL}affiliates/${affiliate_id}/parent/`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Api-Key': TAPFILIATE_API_KEY
+                            },
+                            body: JSON.stringify({
+                                via: parentIdFinalize
+                            })
+                        }
+                    );
+
+                    if (!setParentResponseFinalize.ok) {
+                        const parentErrorTextFinalize = await setParentResponseFinalize.text();
+                        const trimmedParentErrorFinalize = parentErrorTextFinalize.length > 1000 ? parentErrorTextFinalize.substring(0, 1000) + '...' : parentErrorTextFinalize;
+                        console.error('[Parent] Failed to set parent:', setParentResponseFinalize.status, trimmedParentErrorFinalize);
+                        // Continue anyway - affiliate is enrolled successfully
+                    } else {
+                        console.log('[Stage B] ✅ Parent affiliate set successfully');
+                    }
+                } catch (parentErrorFinalize) {
+                    console.error('[Parent] Failed to set parent:', parentErrorFinalize);
+                    // Continue anyway - affiliate is enrolled successfully
+                }
             } else if (affiliateData.parent_id) {
                 console.log('[Parent] Skipping parent set – invalid parent_id value:', affiliateData.parent_id);
             }
@@ -746,81 +758,7 @@ exports.handler = async (event) => {
                     success: true,
                     mode: 'finalize_affiliate',
                     affiliate_id,
-                    program: enrollmentResult.programResult
-                })
-            };
-        }
-
-        /**
-         * MODE B2: Complete enrollment by email (recovery when create succeeded but client got 502)
-         * ---------------------------------------------------------------------------------------
-         * Expects: email, program or program_currency
-         * Does:    looks up affiliate by email, enrolls into program as pending
-         */
-        if (mode === 'complete_enrollment') {
-            const { email, metadata } = affiliateData;
-
-            if (!email) {
-                return {
-                    statusCode: 400,
-                    headers,
-                    body: JSON.stringify({ error: 'Missing email for complete_enrollment mode' })
-                };
-            }
-
-            const mappedProgramIdComplete = resolveProgramId(affiliateData);
-            if (!mappedProgramIdComplete) {
-                return {
-                    statusCode: 400,
-                    headers,
-                    body: JSON.stringify({ error: 'Missing or invalid program selection' })
-                };
-            }
-
-            const affiliateIdComplete = await findAffiliateIdByEmail(email, TAPFILIATE_API_KEY, '[Complete]');
-            if (!affiliateIdComplete) {
-                return {
-                    statusCode: 404,
-                    headers,
-                    body: JSON.stringify({ error: 'No affiliate found for this email.' })
-                };
-            }
-
-            const enrollmentResultComplete = await enrollAffiliateInProgram(
-                affiliateIdComplete,
-                mappedProgramIdComplete,
-                TAPFILIATE_API_KEY,
-                '[Complete]'
-            );
-
-            if (!enrollmentResultComplete.ok) {
-                return {
-                    statusCode: enrollmentResultComplete.statusCode,
-                    headers,
-                    body: JSON.stringify(enrollmentResultComplete.body)
-                };
-            }
-
-            await setAffiliateWebsiteMeta(
-                affiliateIdComplete,
-                metadata && metadata.website,
-                TAPFILIATE_API_KEY,
-                '[Complete]'
-            );
-
-            const parentIdComplete = validateParentId(affiliateData.parent_id);
-            if (parentIdComplete) {
-                await setAffiliateParent(affiliateIdComplete, parentIdComplete, TAPFILIATE_API_KEY, '[Complete]');
-            }
-
-            return {
-                statusCode: 200,
-                headers,
-                body: JSON.stringify({
-                    success: true,
-                    mode: 'complete_enrollment',
-                    affiliate_id: affiliateIdComplete,
-                    program: enrollmentResultComplete.programResult
+                    program: programResultFinalize
                 })
             };
         }
@@ -973,8 +911,7 @@ exports.handler = async (event) => {
          * -------------------------------------
          * Keeps existing behavior: create affiliate + enroll in program
          */
-        const mappedProgramId = resolveProgramId(affiliateData);
-        console.log('Program enrollment target:', mappedProgramId, '(currency:', affiliateData.program_currency || 'n/a', ', program field:', affiliateData.program || 'n/a', ')');
+        const mappedProgramId = PROGRAM_ID_MAP[affiliateData.program] || affiliateData.program;
         if (!mappedProgramId) {
             return {
                 statusCode: 400,
@@ -1012,11 +949,61 @@ exports.handler = async (event) => {
         // Build Tapfiliate payload using centralized function
         const tapfiliatePayload = buildTapfiliatePayload(affiliateData);
 
+        // Fetch custom field keys and add custom fields if provided
         const fieldKeyMap = await getCustomFieldKeys(TAPFILIATE_API_KEY);
-        const customFields = buildCustomFieldsFromAffiliateData(affiliateData, fieldKeyMap);
-        if (Object.keys(customFields).length > 0) {
-            tapfiliatePayload.custom_fields = customFields;
-            console.log('Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+        if (fieldKeyMap) {
+            const customFields = {};
+            
+            // Add Company type if provided
+            if (affiliateData.company_type) {
+                const companyTypeKey = fieldKeyMap[normalizeFieldLabel('Company type')];
+                if (companyTypeKey) {
+                    // Map company type values to labels
+                    const companyTypeLabels = {
+                        'supply': 'I want to store bags (Supply)',
+                        'vacation-rental': 'Vacation Rental / Airbnb Host',
+                        'pms': 'PMS',
+                        'venue': 'Venue',
+                        'blog': 'Blog',
+                        'tour-operator': 'Tour Operator',
+                        'transportations': 'Transportations',
+                        'other': 'Other'
+                    };
+                    const companyTypeValue = companyTypeLabels[affiliateData.company_type] || affiliateData.company_type;
+                    customFields[companyTypeKey] = companyTypeValue;
+                }
+            }
+            
+            // Add Commission type if provided (same pattern as company type)
+            if (affiliateData.commission_type) {
+                const commissionKey = fieldKeyMap[normalizeFieldLabel('Commission type')];
+                if (commissionKey) {
+                    // Validate and normalize commission type to ensure only one of the three formats is sent
+                    const validCommissionTypes = [
+                        'I want 10% commission',
+                        'I want 10% discount code',
+                        'Custom'
+                    ];
+                    // Use value directly if it's one of the valid formats, otherwise default to the first valid value
+                    const commissionTypeValue = validCommissionTypes.includes(affiliateData.commission_type) 
+                        ? affiliateData.commission_type 
+                        : validCommissionTypes[0];
+                    customFields[commissionKey] = commissionTypeValue;
+                }
+            }
+            
+            // Add Free DEMO call if provided (same pattern as company type)
+            if (affiliateData.wantsDemoCall !== undefined && affiliateData.wantsDemoCall !== null) {
+                const demoCallKey = fieldKeyMap[normalizeFieldLabel('Free DEMO call?')] || fieldKeyMap[normalizeFieldLabel('Do you want a FREE DEMO call?')];
+                if (demoCallKey) {
+                    customFields[demoCallKey] = affiliateData.wantsDemoCall ? 'Yes' : 'No';
+                }
+            }
+            
+            if (Object.keys(customFields).length > 0) {
+                tapfiliatePayload.custom_fields = customFields;
+                console.log('Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+            }
         }
 
         // Note: parent_id cannot be set during creation - must use separate API call after creation
@@ -1109,43 +1096,117 @@ exports.handler = async (event) => {
             };
         }
 
-        // Step 2: Enroll in program (must succeed or affiliate stays archived)
-        const enrollmentResult = await enrollAffiliateInProgram(
-            affiliate.id,
-            mappedProgramId,
-            TAPFILIATE_API_KEY,
-            '[Legacy]'
+        // Step 1.5 + Step 2: Set website meta-data and enroll in program in parallel
+        console.log('Running meta-data and enrollment in parallel...');
+
+        const legacyMetaPromise = (affiliateData.metadata && affiliateData.metadata.website)
+            ? fetch(`${TAPFILIATE_BASE_URL}affiliates/${affiliate.id}/meta-data/website/`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json', 'X-Api-Key': TAPFILIATE_API_KEY },
+                body: JSON.stringify({ value: affiliateData.metadata.website })
+            }).then(async r => {
+                console.log('Website meta data response status:', r.status);
+                if (!r.ok) {
+                    const t = await r.text();
+                    console.error('Failed to set website meta data:', t.substring(0, 1000));
+                }
+            }).catch(e => console.error('Error setting website meta data:', e))
+            : Promise.resolve();
+
+        const enrollmentPayload = { affiliate: { id: affiliate.id }, approved: null };
+        console.log('Enrollment endpoint:', `${TAPFILIATE_BASE_URL}programs/${mappedProgramId}/affiliates/?send_welcome_email=false`);
+
+        const legacyEnrollPromise = fetch(
+            `${TAPFILIATE_BASE_URL}programs/${mappedProgramId}/affiliates/?send_welcome_email=false`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'X-Api-Key': TAPFILIATE_API_KEY },
+                body: JSON.stringify(enrollmentPayload)
+            }
         );
 
-        if (!enrollmentResult.ok) {
+        const [, addToProgramResponse] = await Promise.all([legacyMetaPromise, legacyEnrollPromise]);
+
+        console.log('Enrollment response status:', addToProgramResponse.status);
+
+        if (!addToProgramResponse.ok) {
+            const contentType = addToProgramResponse.headers.get('content-type');
+            const errorText = await addToProgramResponse.text();
+            
+            // Log error details (trim long responses)
+            const trimmedError = errorText.length > 1000 ? errorText.substring(0, 1000) + '...' : errorText;
+            console.error('Failed to enroll affiliate in program (trimmed):', trimmedError);
+            console.error('Response status:', addToProgramResponse.status);
+            console.error('Response content-type:', contentType);
+            
+            // Check if response is HTML (error page)
+            if (contentType && contentType.includes('text/html')) {
+                console.error('Tapfiliate returned HTML error page instead of JSON');
+                return {
+                    statusCode: 500,
+                    headers,
+                    body: JSON.stringify({
+                        error: 'Something went wrong while creating your affiliate account. Please try again later.',
+                        status: addToProgramResponse.status
+                    })
+                };
+            }
+            
             return {
-                statusCode: enrollmentResult.statusCode,
+                statusCode: addToProgramResponse.status || 500,
                 headers,
-                body: JSON.stringify(enrollmentResult.body)
+                body: JSON.stringify({
+                    error: 'Affiliate created but failed to enroll in program.',
+                    status: addToProgramResponse.status
+                })
             };
         }
 
-        await setAffiliateWebsiteMeta(
-            affiliate.id,
-            affiliateData.metadata && affiliateData.metadata.website,
-            TAPFILIATE_API_KEY,
-            '[Legacy]'
-        );
+        const programResult = await addToProgramResponse.json();
 
+        // Set parent affiliate AFTER successful enrollment (for MLM functionality)
         const parentId = validateParentId(affiliateData.parent_id);
         if (parentId) {
-            await setAffiliateParent(affiliate.id, parentId, TAPFILIATE_API_KEY, '[Legacy]');
+            try {
+                console.log('[Parent] Setting parent via Tapfiliate MLM endpoint:', parentId);
+                const setParentResponse = await fetch(
+                    `${TAPFILIATE_BASE_URL}affiliates/${affiliate.id}/parent/`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-Api-Key': TAPFILIATE_API_KEY
+                        },
+                        body: JSON.stringify({
+                            via: parentId
+                        })
+                    }
+                );
+
+                if (!setParentResponse.ok) {
+                    const parentErrorText = await setParentResponse.text();
+                    const trimmedParentError = parentErrorText.length > 1000 ? parentErrorText.substring(0, 1000) + '...' : parentErrorText;
+                    console.error('[Parent] Failed to set parent:', setParentResponse.status, trimmedParentError);
+                    // Continue anyway - affiliate is enrolled successfully
+                } else {
+                    console.log('✅ Parent affiliate set successfully');
+                }
+            } catch (parentError) {
+                console.error('[Parent] Failed to set parent:', parentError);
+                // Continue anyway - affiliate is enrolled successfully
+            }
         } else if (affiliateData.parent_id) {
             console.log('[Parent] Skipping parent set – invalid parent_id value:', affiliateData.parent_id);
         }
 
+        // Success - affiliate created and added to program (should be in Pending status)
         return {
             statusCode: 200,
             headers,
             body: JSON.stringify({
                 success: true,
                 affiliate: affiliate,
-                program: enrollmentResult.programResult
+                program: programResult
             })
         };
 
