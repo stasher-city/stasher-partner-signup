@@ -685,19 +685,14 @@ exports.handler = async (event) => {
          * Does:   updates affiliate with complete info, enrolls existing affiliate into program, sets website meta-data
          */
         if (mode === 'finalize_affiliate') {
-            const { affiliate_id, program, metadata, email } = affiliateData;
-            let affiliateIdFinalize = affiliate_id;
+            const { affiliate_id, program, metadata } = affiliateData;
 
-            if (!affiliateIdFinalize && email) {
-                affiliateIdFinalize = await findAffiliateIdByEmail(email, TAPFILIATE_API_KEY, '[Stage B]');
-            }
-
-            if (!affiliateIdFinalize) {
+            if (!affiliate_id) {
                 return {
                     statusCode: 400,
                     headers,
                     body: JSON.stringify({
-                        error: 'Missing affiliate_id or email for finalize_affiliate mode'
+                        error: 'Missing affiliate_id for finalize_affiliate mode'
                     })
                 };
             }
@@ -716,7 +711,7 @@ exports.handler = async (event) => {
 
             // Enrollment only — affiliate data is set at create time (Tapfiliate has no update endpoint).
             const enrollmentResult = await enrollAffiliateInProgram(
-                affiliateIdFinalize,
+                affiliate_id,
                 mappedProgramIdFinalize,
                 TAPFILIATE_API_KEY,
                 '[Stage B]'
@@ -731,7 +726,7 @@ exports.handler = async (event) => {
             }
 
             await setAffiliateWebsiteMeta(
-                affiliateIdFinalize,
+                affiliate_id,
                 metadata && metadata.website,
                 TAPFILIATE_API_KEY,
                 '[Stage B]'
@@ -739,7 +734,7 @@ exports.handler = async (event) => {
 
             const parentIdFinalize = validateParentId(affiliateData.parent_id);
             if (parentIdFinalize) {
-                await setAffiliateParent(affiliateIdFinalize, parentIdFinalize, TAPFILIATE_API_KEY, '[Stage B]');
+                await setAffiliateParent(affiliate_id, parentIdFinalize, TAPFILIATE_API_KEY, '[Stage B]');
             } else if (affiliateData.parent_id) {
                 console.log('[Parent] Skipping parent set – invalid parent_id value:', affiliateData.parent_id);
             }
@@ -750,7 +745,7 @@ exports.handler = async (event) => {
                 body: JSON.stringify({
                     success: true,
                     mode: 'finalize_affiliate',
-                    affiliate_id: affiliateIdFinalize,
+                    affiliate_id,
                     program: enrollmentResult.programResult
                 })
             };
@@ -974,54 +969,55 @@ exports.handler = async (event) => {
         }
 
         /**
-         * MODE D: signup_and_enroll OR legacy default (no mode)
-         * ---------------------------------------------------
-         * Creates affiliate and enrolls in program in one Lambda invocation.
-         * Keeps affiliates out of Archived by ensuring enrollment always runs.
+         * LEGACY / DEFAULT MODE (no mode field)
+         * -------------------------------------
+         * Keeps existing behavior: create affiliate + enroll in program
          */
-        if (mode === 'signup_and_enroll' || !mode) {
-            if (mode === 'signup_and_enroll') {
-                console.log('[Signup] signup_and_enroll mode — create + enroll in one call');
-            } else {
-                console.log('[Legacy] Default mode — create + enroll in one call');
-            }
+        const mappedProgramId = resolveProgramId(affiliateData);
+        console.log('Program enrollment target:', mappedProgramId, '(currency:', affiliateData.program_currency || 'n/a', ', program field:', affiliateData.program || 'n/a', ')');
+        if (!mappedProgramId) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({
+                    error: 'Missing or invalid program selection'
+                })
+            };
+        }
 
-            const mappedProgramId = resolveProgramId(affiliateData);
-            console.log('Program enrollment target:', mappedProgramId, '(currency:', affiliateData.program_currency || 'n/a', ', program field:', affiliateData.program || 'n/a', ')');
-            if (!mappedProgramId) {
-                return {
-                    statusCode: 400,
-                    headers,
-                    body: JSON.stringify({
-                        error: 'Missing or invalid program selection'
-                    })
-                };
-            }
+        // Validate required fields (using frontend field names)
+        const requiredFields = ['first_name', 'last_name', 'email', 'password', 'city', 'country', 'company'];
+        const missing = requiredFields.filter((field) => {
+            const value = affiliateData[field];
+            return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
+        });
 
-            const requiredFields = ['first_name', 'last_name', 'email', 'password', 'city', 'country', 'company'];
-            const missing = requiredFields.filter((field) => {
-                const value = affiliateData[field];
-                return value === undefined || value === null || (typeof value === 'string' && value.trim() === '');
-            });
+        if (missing.length > 0) {
+            return {
+                statusCode: 400,
+                headers,
+                body: JSON.stringify({
+                    error: `Missing required fields: ${missing.join(', ')}`
+                })
+            };
+        }
 
-            if (missing.length > 0) {
-                return {
-                    statusCode: 400,
-                    headers,
-                    body: JSON.stringify({
-                        error: `Missing required fields: ${missing.join(', ')}`
-                    })
-                };
-            }
+        // DO NOT send onboarding_fields - Company Type, Commission Type, and Number of Properties
+        // are collected in the form for validation only, but NOT sent to Tapfiliate API
+        // Explicitly DO NOT include:
+        // - company_type (collected in form but not sent to API)
+        // - commission_type (collected in form but not sent to API)
+        // - number_of_properties (collected in form but not sent to API)
 
-            const tapfiliatePayload = buildTapfiliatePayload(affiliateData);
+        // Build Tapfiliate payload using centralized function
+        const tapfiliatePayload = buildTapfiliatePayload(affiliateData);
 
-            const fieldKeyMap = await getCustomFieldKeys(TAPFILIATE_API_KEY);
-            const customFields = buildCustomFieldsFromAffiliateData(affiliateData, fieldKeyMap);
-            if (Object.keys(customFields).length > 0) {
-                tapfiliatePayload.custom_fields = customFields;
-                console.log('Final custom_fields payload:', JSON.stringify(customFields, null, 2));
-            }
+        const fieldKeyMap = await getCustomFieldKeys(TAPFILIATE_API_KEY);
+        const customFields = buildCustomFieldsFromAffiliateData(affiliateData, fieldKeyMap);
+        if (Object.keys(customFields).length > 0) {
+            tapfiliatePayload.custom_fields = customFields;
+            console.log('Final custom_fields payload:', JSON.stringify(customFields, null, 2));
+        }
 
         // Note: parent_id cannot be set during creation - must use separate API call after creation
         if (affiliateData.parent_id && affiliateData.parent_id !== '' && affiliateData.parent_id !== 'null') {
@@ -1148,18 +1144,8 @@ exports.handler = async (event) => {
             headers,
             body: JSON.stringify({
                 success: true,
-                mode: mode || 'legacy',
                 affiliate: affiliate,
                 program: enrollmentResult.programResult
-            })
-        };
-        }
-
-        return {
-            statusCode: 400,
-            headers,
-            body: JSON.stringify({
-                error: `Unknown mode: ${mode}`
             })
         };
 
