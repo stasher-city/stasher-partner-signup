@@ -516,72 +516,6 @@ if (document.readyState === 'loading') {
 // ========================================
 
 // ========================================
-// DEMO CALL LINKS (parent ID → Cal.com) - START
-// ========================================
-
-const DEFAULT_DEMO_CAL_URL = 'https://cal.com/periklis/15min';
-const WHITELABEL_DEMO_LINKS_URL = '/whitelabel/demo-links.json';
-let demoLinksConfig = null;
-
-function fetchDemoLinksConfig() {
-    if (demoLinksConfig) {
-        return Promise.resolve(demoLinksConfig);
-    }
-    return fetch(WHITELABEL_DEMO_LINKS_URL, { cache: 'no-store' })
-        .then(function (response) {
-            if (!response.ok) return null;
-            return response.json();
-        })
-        .then(function (data) {
-            demoLinksConfig = data || { defaultUrl: DEFAULT_DEMO_CAL_URL, links: {} };
-            if (!demoLinksConfig.links) demoLinksConfig.links = {};
-            if (!demoLinksConfig.defaultUrl) demoLinksConfig.defaultUrl = DEFAULT_DEMO_CAL_URL;
-            return demoLinksConfig;
-        })
-        .catch(function () {
-            demoLinksConfig = { defaultUrl: DEFAULT_DEMO_CAL_URL, links: {} };
-            return demoLinksConfig;
-        });
-}
-
-function resolveDemoCalUrl() {
-    const config = demoLinksConfig || { defaultUrl: DEFAULT_DEMO_CAL_URL, links: {} };
-    const parentId = resolveParentId();
-    const links = config.links || {};
-
-    if (parentId && links[parentId] && links[parentId].calUrl) {
-        return links[parentId].calUrl;
-    }
-
-    if (parentId && links) {
-        const matchKey = Object.keys(links).find(function (key) {
-            return key.toLowerCase() === String(parentId).toLowerCase();
-        });
-        if (matchKey && links[matchKey].calUrl) {
-            return links[matchKey].calUrl;
-        }
-    }
-
-    return config.defaultUrl || DEFAULT_DEMO_CAL_URL;
-}
-
-function initDemoCallLinks() {
-    fetchDemoLinksConfig().then(function () {
-        console.log('[Demo] Cal.com links loaded. Default:', demoLinksConfig.defaultUrl);
-    });
-}
-
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', initDemoCallLinks);
-} else {
-    initDemoCallLinks();
-}
-
-// ========================================
-// DEMO CALL LINKS - END
-// ========================================
-
-// ========================================
 // LANGUAGE URL PARAMETER - START
 // ========================================
 
@@ -721,7 +655,53 @@ function loadCreatedAffiliateId() {
 }
 
 function isPendingEnrollmentResult(result) {
-    return !!(result && result.success && result.program && result.program.approved === null);
+    if (!result || !result.success) {
+        return false;
+    }
+    const program = result.program;
+    return !!(program && program.approved === null);
+}
+
+function sleep(ms) {
+    return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function buildFullSignupPayload(programId, programCurrency, parentId) {
+    const payload = {
+        mode: 'signup_and_enroll',
+        first_name: formState.firstName,
+        last_name: formState.lastName,
+        email: formState.email,
+        password: formState.password,
+        city: formState.city,
+        country: formState.country,
+        company: formState.companyName,
+        program: programId,
+        program_currency: programCurrency,
+        company_type: formState.companyType,
+        commission_type: formState.commissionType,
+        wantsDemoCall: formState.wantsDemoCall
+    };
+
+    if (formState.companyDescription) {
+        payload.company_description = formState.companyDescription;
+    }
+
+    if (formState.companyWebsite) {
+        payload.metadata = { website: formState.companyWebsite };
+    }
+
+    if (parentId) {
+        payload.parent_id = parentId;
+    }
+
+    Object.keys(payload).forEach((key) => {
+        if (payload[key] === undefined || payload[key] === null || payload[key] === '') {
+            delete payload[key];
+        }
+    });
+
+    return payload;
 }
 
 function syncFormUiFromState() {
@@ -2215,7 +2195,7 @@ function setupEventListeners() {
                 }
                 console.log('✅ Affiliate finalized before demo booking');
                 clearSignupFlowState();
-                window.location.href = resolveDemoCalUrl();
+                window.location.href = 'https://cal.com/periklis/15min';
             } catch (error) {
                 console.error('Error finalizing affiliate before demo booking:', error);
                 alert(error.message || 'Something went wrong while creating your affiliate account. Please try again.');
@@ -3006,7 +2986,7 @@ function buildFinalizePayload(affiliateId, programId, programCurrency, parentId)
 
 function buildCompleteEnrollmentPayload(programId, programCurrency, parentId) {
     const payload = {
-        mode: 'complete_enrollment',
+        mode: 'finalize_affiliate',
         email: formState.email,
         program: programId,
         program_currency: programCurrency
@@ -3035,6 +3015,128 @@ async function recoverEnrollmentByEmail(programId, programCurrency, parentId) {
     return postToAffiliateBackend(recoveryPayload);
 }
 
+async function attemptSingleShotSignup(programId, programCurrency, parentId, maxAttempts) {
+    const payload = buildFullSignupPayload(programId, programCurrency, parentId);
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            console.log('Single-shot signup attempt', attempt, 'of', maxAttempts);
+            const result = await postToAffiliateBackend(payload);
+            if (isPendingEnrollmentResult(result)) {
+                return result;
+            }
+            throw new Error('Single-shot signup did not return pending enrollment.');
+        } catch (error) {
+            lastError = error;
+            console.warn('Single-shot attempt failed:', error.message);
+
+            if (shouldAttemptEnrollmentRecovery(error)) {
+                try {
+                    const recovered = await recoverEnrollmentByEmail(programId, programCurrency, parentId);
+                    if (isPendingEnrollmentResult(recovered)) {
+                        return recovered;
+                    }
+                } catch (recoveryError) {
+                    console.warn('Email recovery after single-shot failed:', recoveryError.message);
+                }
+            }
+
+            if (attempt < maxAttempts) {
+                await sleep(1000 * attempt);
+            }
+        }
+    }
+
+    throw lastError || new Error('Single-shot signup failed.');
+}
+
+async function attemptTwoStepSignup(programId, programCurrency, parentId, maxAttempts) {
+    let affiliateId = createdAffiliateId;
+    let lastError = null;
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+            if (!affiliateId) {
+                const createPayload = {
+                    mode: 'create_affiliate_only',
+                    first_name: formState.firstName,
+                    last_name: formState.lastName,
+                    email: formState.email,
+                    password: formState.password,
+                    city: formState.city,
+                    country: formState.country,
+                    company: formState.companyName,
+                    program_currency: programCurrency,
+                    company_type: formState.companyType,
+                    commission_type: formState.commissionType,
+                    wantsDemoCall: formState.wantsDemoCall
+                };
+
+                if (formState.companyDescription) {
+                    createPayload.company_description = formState.companyDescription;
+                }
+
+                if (parentId) {
+                    createPayload.parent_id = parentId;
+                }
+
+                Object.keys(createPayload).forEach((key) => {
+                    if (createPayload[key] === undefined || createPayload[key] === null || createPayload[key] === '') {
+                        delete createPayload[key];
+                    }
+                });
+
+                console.log('Two-step create attempt', attempt, 'of', maxAttempts);
+                try {
+                    const createResult = await postToAffiliateBackend(createPayload);
+                    if (!createResult || !createResult.success || !createResult.affiliate_id) {
+                        throw new Error('Failed to create affiliate account.');
+                    }
+                    affiliateId = createResult.affiliate_id;
+                    createdAffiliateId = affiliateId;
+                    persistCreatedAffiliateId(affiliateId);
+                } catch (createError) {
+                    if (shouldAttemptEnrollmentRecovery(createError)) {
+                        const recovered = await recoverEnrollmentByEmail(programId, programCurrency, parentId);
+                        if (isPendingEnrollmentResult(recovered)) {
+                            return recovered;
+                        }
+                    }
+                    throw createError;
+                }
+            }
+
+            console.log('Two-step enroll attempt', attempt, 'for affiliate', affiliateId);
+            const finalizeResult = await enrollAffiliateForSignup(affiliateId, programId, programCurrency, parentId);
+            if (isPendingEnrollmentResult(finalizeResult)) {
+                return finalizeResult;
+            }
+            throw new Error('Two-step enrollment did not return pending status.');
+        } catch (error) {
+            lastError = error;
+            console.warn('Two-step attempt failed:', error.message);
+
+            if (shouldAttemptEnrollmentRecovery(error)) {
+                try {
+                    const recovered = await recoverEnrollmentByEmail(programId, programCurrency, parentId);
+                    if (isPendingEnrollmentResult(recovered)) {
+                        return recovered;
+                    }
+                } catch (recoveryError) {
+                    console.warn('Email recovery after two-step failed:', recoveryError.message);
+                }
+            }
+
+            if (attempt < maxAttempts) {
+                await sleep(1000 * attempt);
+            }
+        }
+    }
+
+    throw lastError || new Error('Two-step signup failed.');
+}
+
 function shouldAttemptEnrollmentRecovery(error) {
     if (!error) {
         return false;
@@ -3047,91 +3149,27 @@ function shouldAttemptEnrollmentRecovery(error) {
     return message.includes('already used') || message.includes('internal server error');
 }
 
-// Create affiliate via secure backend endpoint (two-step: create, then enroll)
+// Create affiliate via secure backend endpoint
 async function createTapfiliateAffiliate() {
     const programCurrency = formState.program;
     const programId = PROGRAM_ID_MAP[programCurrency];
     if (!programId) {
-        throw new Error('Program selection is missing or invalid.');
+        throw new Error('Program selection is missing or invalid. Please go back to Step 2 and choose a currency.');
     }
 
     const parentId = resolveParentId();
+    console.log('[Signup] program_currency:', programCurrency, 'program_id:', programId);
     console.log('[Tracking] parent_id resolved to:', parentId || '(none)');
 
-    let affiliateId = createdAffiliateId;
-
-    if (!affiliateId) {
-        const createPayload = {
-            mode: 'create_affiliate_only',
-            first_name: formState.firstName,
-            last_name: formState.lastName,
-            email: formState.email,
-            password: formState.password,
-            city: formState.city,
-            country: formState.country,
-            company: formState.companyName,
-            program_currency: programCurrency,
-            company_type: formState.companyType,
-            commission_type: formState.commissionType,
-            wantsDemoCall: formState.wantsDemoCall
-        };
-
-        if (formState.companyDescription) {
-            createPayload.company_description = formState.companyDescription;
-        }
-
-        if (parentId) {
-            createPayload.parent_id = parentId;
-        }
-
-        Object.keys(createPayload).forEach((key) => {
-            if (createPayload[key] === undefined || createPayload[key] === null || createPayload[key] === '') {
-                delete createPayload[key];
-            }
-        });
-
-        console.log('Step 1: Creating affiliate with complete data:', JSON.stringify({ ...createPayload, password: '***MASKED***' }, null, 2));
-
-        try {
-            const createResult = await postToAffiliateBackend(createPayload);
-            if (!createResult || !createResult.success || !createResult.affiliate_id) {
-                throw new Error('Failed to create affiliate account.');
-            }
-            affiliateId = createResult.affiliate_id;
-        } catch (createError) {
-            if (shouldAttemptEnrollmentRecovery(createError)) {
-                const recoveryResult = await recoverEnrollmentByEmail(programId, programCurrency, parentId);
-                if (isPendingEnrollmentResult(recoveryResult)) {
-                    console.log('✅ Enrollment recovered by email after create failure');
-                    return recoveryResult;
-                }
-            }
-            throw createError;
-        }
-
-        createdAffiliateId = affiliateId;
-        persistCreatedAffiliateId(affiliateId);
-        console.log('✅ Step 1 complete. Affiliate ID:', affiliateId);
-    }
-
-    let finalizeResult;
+    // 1) Prefer one Lambda call (create + enroll together) — fewer stranded affiliates
     try {
-        finalizeResult = await enrollAffiliateForSignup(affiliateId, programId, programCurrency, parentId);
-    } catch (enrollError) {
-        if (shouldAttemptEnrollmentRecovery(enrollError)) {
-            finalizeResult = await recoverEnrollmentByEmail(programId, programCurrency, parentId);
-        } else {
-            throw enrollError;
-        }
+        return await attemptSingleShotSignup(programId, programCurrency, parentId, 3);
+    } catch (singleShotError) {
+        console.warn('Single-shot signup exhausted, falling back to two-step:', singleShotError.message);
     }
 
-    if (!isPendingEnrollmentResult(finalizeResult)) {
-        const approvedStatus = finalizeResult && finalizeResult.program ? finalizeResult.program.approved : 'unknown';
-        throw new Error('Enrollment did not complete as pending (status: ' + approvedStatus + '). Please try again.');
-    }
-
-    console.log('✅ Affiliate enrolled as PENDING in program:', programId);
-    return finalizeResult;
+    // 2) Fallback: create then enroll (works when single-shot Lambda times out)
+    return attemptTwoStepSignup(programId, programCurrency, parentId, 3);
 }
 
 // Terms Modal Functions

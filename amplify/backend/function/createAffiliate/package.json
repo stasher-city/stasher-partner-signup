@@ -4,6 +4,7 @@
   "description": "AWS Lambda function for Tapfiliate affiliate creation",
   "main": "src/index.js",
   "scripts": {
+    "zip-lambda": "zip -j ../../../../createAffiliate-lambda.zip src/index.js package.json",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [
