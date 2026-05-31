@@ -2848,20 +2848,19 @@ async function finalizeAffiliateWithRetry(maxAttempts = 3) {
 
 // Handle Skip Demo
 async function handleSkipDemo() {
-    showApiLoading();
-    try {
-        const result = await finalizeAffiliateWithRetry();
-        if (!isPendingEnrollmentResult(result)) {
-            throw new Error('Signup did not complete successfully.');
+    // Show confirmation page immediately — don't wait for the API call
+    showConfirmationPage();
+
+    // Fire enrollment in background (with retry)
+    finalizeAffiliateWithRetry().then(result => {
+        if (result && result.success) {
+            console.log('Form submitted successfully to Tapfiliate');
+        } else {
+            console.warn('Form submission to Tapfiliate had issues:', result);
         }
-        console.log('Form submitted successfully to Tapfiliate');
-        showConfirmationPage();
-    } catch (error) {
+    }).catch(error => {
         console.error('Error submitting form to Tapfiliate:', error);
-        alert(error.message || 'Something went wrong while creating your affiliate account. Please try again.');
-    } finally {
-        hideApiLoading();
-    }
+    });
 }
 
 // Show Confirmation Page
