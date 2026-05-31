@@ -962,7 +962,8 @@
 
         var defaultHtml = '' +
             '<div class="wl-default-preview">' +
-                '<strong>Default (no parent match):</strong> ' +
+                '<span class="wl-live-badge">Live</span>' +
+                '<strong>Default (fallback when no parent match):</strong> ' +
                 '<a href="' + escapeAttr(defaultUrl) + '" target="_blank" rel="noopener">' + escapeHtml(defaultUrl) + '</a>' +
             '</div>';
 
@@ -971,30 +972,40 @@
             return;
         }
 
-        var html = defaultHtml + ids.map(function (id) {
+        var rows = ids.map(function (id) {
             var link = links[id] || {};
             var calUrl = link.calUrl || '';
             return '' +
-                '<div class="wl-demo-item">' +
-                    '<div class="wl-demo-item-body">' +
-                        '<p class="wl-demo-item-name">' + escapeHtml(link.name || id) + '</p>' +
-                        '<div class="wl-demo-item-meta">' +
-                            '<span>Parent ID: <code>' + escapeHtml(id) + '</code></span>' +
-                            (calUrl
-                                ? '<a class="wl-demo-live-link" href="' + escapeAttr(calUrl) + '" target="_blank" rel="noopener">' + escapeHtml(calUrl) + '</a>'
-                                : '<span class="wl-muted">No Cal.com URL</span>') +
-                        '</div>' +
+                '<div class="wl-demo-table-row">' +
+                    '<div class="wl-demo-col-name">' +
+                        '<span class="wl-live-badge">Live</span>' +
+                        '<span class="wl-demo-name-text">' + escapeHtml(link.name || id) + '</span>' +
                     '</div>' +
-                    '<div class="wl-demo-item-actions">' +
-                        '<a class="wl-link" href="' + escapeAttr(calUrl) + '" target="_blank" rel="noopener">Open link</a>' +
+                    '<div class="wl-demo-col-pid"><code>' + escapeHtml(id) + '</code></div>' +
+                    '<div class="wl-demo-col-url">' +
+                        (calUrl
+                            ? '<a class="wl-demo-live-link" href="' + escapeAttr(calUrl) + '" target="_blank" rel="noopener">' + escapeHtml(calUrl) + '</a>'
+                            : '<span class="wl-muted">—</span>') +
+                    '</div>' +
+                    '<div class="wl-demo-col-actions">' +
+                        (calUrl ? '<a class="wl-link" href="' + escapeAttr(calUrl) + '" target="_blank" rel="noopener">Open</a>' : '') +
                         '<button type="button" class="wl-link" data-demo-edit="' + escapeAttr(id) + '">Edit</button>' +
                         '<button type="button" class="wl-link wl-link-danger" data-demo-delete="' + escapeAttr(id) + '">Delete</button>' +
-                        '<button type="button" class="wl-link" data-demo-copy="' + escapeAttr(calUrl) + '">Copy link</button>' +
+                        '<button type="button" class="wl-link" data-demo-copy="' + escapeAttr(calUrl) + '">Copy</button>' +
                     '</div>' +
                 '</div>';
         }).join('');
 
-        $demoListContent.innerHTML = html;
+        $demoListContent.innerHTML = defaultHtml +
+            '<div class="wl-demo-table">' +
+                '<div class="wl-demo-table-head">' +
+                    '<div>Name</div>' +
+                    '<div>Parent ID</div>' +
+                    '<div>Cal.com Link</div>' +
+                    '<div></div>' +
+                '</div>' +
+                rows +
+            '</div>';
 
         Array.prototype.forEach.call($demoListContent.querySelectorAll('[data-demo-edit]'), function (btn) {
             btn.addEventListener('click', function () {
@@ -1015,7 +1026,7 @@
                 try { document.execCommand('copy'); } catch (e) {}
                 document.body.removeChild(temp);
                 btn.textContent = 'Copied!';
-                setTimeout(function () { btn.textContent = 'Copy link'; }, 1500);
+                setTimeout(function () { btn.textContent = 'Copy'; }, 1500);
             });
         });
     }
