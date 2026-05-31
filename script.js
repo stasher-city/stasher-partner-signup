@@ -2198,31 +2198,22 @@ function setupEventListeners() {
     // Page 5: Final Step
     const bookDemoBtn = document.getElementById('bookDemoBtn');
     if (bookDemoBtn) {
-        bookDemoBtn.addEventListener('click', async function() {
-            formState.wantsDemoCall = true;  // Track that user wants demo call
+        bookDemoBtn.addEventListener('click', function() {
+            formState.wantsDemoCall = true;
 
-            // CRITICAL: finalize the affiliate BEFORE leaving for cal.com.
-            // Stage A only created the affiliate with placeholder company/city
-            // and did NOT enrol them in a program. Without this finalize step,
-            // every demo-call signup lost their company/city and never got
-            // routed into the selected program (appearing archived, not pending).
-            bookDemoBtn.disabled = true;
-            showApiLoading();
-            try {
-                const result = await finalizeAffiliateWithRetry();
-                if (!isPendingEnrollmentResult(result)) {
-                    throw new Error('Your account was created but program enrollment did not complete. Please try again or email partnerships@stasher.com.');
+            clearSignupFlowState();
+
+            finalizeAffiliateWithRetry().then(result => {
+                if (result && result.success) {
+                    console.log('Affiliate finalized after demo booking redirect');
+                } else {
+                    console.warn('Form submission to Tapfiliate had issues:', result);
                 }
-                console.log('✅ Affiliate finalized before demo booking');
-                clearSignupFlowState();
-                window.location.href = resolveDemoCalUrl();
-            } catch (error) {
-                console.error('Error finalizing affiliate before demo booking:', error);
-                alert(error.message || 'Something went wrong while creating your affiliate account. Please try again.');
-                bookDemoBtn.disabled = false;
-            } finally {
-                hideApiLoading();
-            }
+            }).catch(error => {
+                console.error('Error submitting form to Tapfiliate:', error);
+            });
+
+            window.location.href = resolveDemoCalUrl();
         });
     }
 
