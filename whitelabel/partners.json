@@ -3,16 +3,16 @@
   "partners": {
     "2813458": {
       "code": "2813458",
-      "brandColor": "#141313",
+      "brandColor": "#fff65b",
       "heroHeadline": "Luggage Storage For Your Guests",
       "heroSubtitle": "",
       "title": "The benefits of using Stasher with Lodgify",
-      "description": "10% commission paid to you on every booking you generate via a unique link\nOr a 10% Custom Discount code for your guests\nThe top-rated luggage store platform",
-      "ctaUrl": "https://help.lodgify.com/hc/en-us/articles/5447759272476-Stasher-Affiliate-Program",
+      "description": "-10% commission paid to you on every booking you generate via a unique link\n-Or a 10% Custom Discount code for your guests\n-The top-rated luggage store platform",
+      "ctaUrl": "",
       "ctaLabel": "",
-      "stasherLogoColor": "white",
+      "stasherLogoColor": "blue",
       "logoPath": "/whitelabel/logos/2813458.png",
-      "updatedAt": "2026-06-01T09:46:17.238Z"
+      "updatedAt": "2026-06-01T09:49:25.873Z"
     },
     "2960514": {
       "code": "2960514",
@@ -32,7 +32,7 @@
       "heroHeadline": "Luggage Storage For Your Guests",
       "heroSubtitle": "",
       "title": "The benefits of using Stasher with HostBuddy Ai",
-      "description": "ÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ Turn luggage questions into happier guests and extra revenue\nÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ 10% commission paid to you on every booking you generate via a unique link\nÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ The top-rated luggage store platform",
+      "description": "ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ Turn luggage questions into happier guests and extra revenue\nÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ 10% commission paid to you on every booking you generate via a unique link\nÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂÃÂ¢ The top-rated luggage store platform",
       "ctaUrl": "https://www.hostbuddy.ai/stasher",
       "ctaLabel": "",
       "logoPath": "/whitelabel/logos/9934215.png",
